@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>YF7 Tournaments</title>
+  <link rel="stylesheet" href="index.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Inter:wght@300;400;600&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+</head>
+<body>
+
+  <!-- NAVBAR -->
+  <nav class="navbar" id="navbar">
+    <div class="nav-logo">
+      <img src="../image/logo-sans-fond.png" alt="YF7 Logo" class="logo-img"/>
+      <span>YF7 <span class="yellow">Tournaments</span></span>
+    </div>
+    <div class="nav-links" id="navLinks">
+      <a href="javascript:void(0)" class="nav-link active" onclick="showPage(event, 'home'); return false;">Home</a>
+      <a href="javascript:void(0)" class="nav-link" onclick="showPage(event, 'esports'); return false;">Esports</a>
+      <a href="javascript:void(0)" class="nav-link" onclick="showPage(event, 'winning'); return false;">Winning Teams</a>
+      <a href="javascript:void(0)" class="nav-link" onclick="showPage(event, 'news'); return false;">News</a>
+      <a href="javascript:void(0)" class="nav-link" onclick="showPage(event, 'contact'); return false;">Contact</a>
+      <a href="javascript:void(0)" class="nav-link" onclick="showPage(event, 'socials'); return false;">Socials</a>
+      <a href="javascript:void(0)" class="nav-link" onclick="showPage(event, 'about'); return false;">About Us</a>
+      <a href="javascript:void(0)" class="nav-link" onclick="showPage(event, 'admin'); return false;">Admin</a>
+    </div>
+    <div class="hamburger" id="hamburger" onclick="toggleMenu()">
+      <span></span><span></span><span></span>
+    </div>
+  </nav>
+
+  <!-- ===== HOME PAGE ===== -->
+  <section class="page active" id="page-home">
+    <div class="hero">
+      <div class="hero-content">
+        <div class="hero-badge">🎮 Official</div>
+        <h1>Brawl Stars Tournaments <span class="yellow">Organizers</span></h1>
+        <p>The most competitive Brawl Stars tournaments. Join us and prove your skills.</p>
+        <a href="https://discord.gg/VOTRE_LIEN" target="_blank" class="btn btn-primary">
+          <i class="fab fa-discord"></i> Join our Discord
+        </a>
+      </div>
+      <div class="hero-visual">
+        <div class="hero-glow"></div>
+      </div>
+    </div>
+
+    <div class="section-title">
+      <h2>Upcoming <span class="yellow">Tournaments</span></h2>
+      <p>Click on a tournament to register</p>
+    </div>
+    <div class="tournaments-grid" id="tournamentsGrid">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+  </section>
+
+  <!-- ===== ESPORTS PAGE ===== -->
+  <section class="page" id="page-esports">
+    <div class="page-header">
+      <h1>Esports <span class="yellow">Scene</span></h1>
+      <p>Follow leaderboards and brackets from every region</p>
+    </div>
+    <div class="regions-tabs">
+      <button class="tab-btn active" onclick="showRegion('eu')">🇪🇺 Europe</button>
+      <button class="tab-btn" onclick="showRegion('na')">🇺🇸 North America</button>
+      <button class="tab-btn" onclick="showRegion('latam')">🌎 LATAM</button>
+      <button class="tab-btn" onclick="showRegion('asia')">🌏 Asia</button>
+      <button class="tab-btn" onclick="showRegion('mena')">🌍 MENA</button>
+    </div>
+    <div class="esports-content" id="esportsContent">
+      <div class="leaderboard-container">
+        <h3><i class="fas fa-trophy"></i> Regional Leaderboard — <span id="currentRegion">Europe</span></h3>
+        <div class="leaderboard-table" id="leaderboardTable">
+          <div class="loading-spinner"><div class="spinner"></div></div>
+        </div>
+      </div>
+      <div class="brackets-container">
+        <h3><i class="fas fa-sitemap"></i> Brackets</h3>
+        <div class="brackets-tabs">
+          <button class="bracket-tab active" onclick="showBracket('mq')">MQ</button>
+          <button class="bracket-tab" onclick="showBracket('mf')">MF</button>
+        </div>
+        <div class="bracket-display" id="bracketDisplay">
+          <div class="bracket-placeholder">
+            <i class="fas fa-sitemap"></i>
+            <p>Select a region and bracket type</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== WINNING TEAMS PAGE ===== -->
+  <section class="page" id="page-winning">
+    <div class="page-header">
+      <h1>Winning <span class="yellow">Teams</span></h1>
+      <p>All-time rankings of players and teams</p>
+    </div>
+    <div class="winning-tabs">
+      <button class="tab-btn active" onclick="showWinning('players')">👤 Players</button>
+      <button class="tab-btn" onclick="showWinning('teams')">👥 Teams</button>
+    </div>
+    <div class="winning-grid" id="winningGrid">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+  </section>
+
+  <!-- ===== NEWS PAGE ===== -->
+  <section class="page" id="page-news">
+    <div class="page-header">
+      <h1>Latest <span class="yellow">News</span></h1>
+      <p>Stay up to date with YF7 Tournaments</p>
+    </div>
+    <div class="news-grid" id="newsGrid">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+  </section>
+
+  <!-- News Article Modal -->
+  <div class="modal" id="newsModal">
+    <div class="modal-content">
+      <button class="modal-close" onclick="closeModal('newsModal')"><i class="fas fa-times"></i></button>
+      <div id="newsModalContent"></div>
+    </div>
+  </div>
+
+  <!-- ===== CONTACT PAGE ===== -->
+  <section class="page" id="page-contact">
+    <div class="page-header">
+      <h1>Contact <span class="yellow">Us</span></h1>
+      <p>Got a question or partnership offer? Let us know!</p>
+    </div>
+
+    <!-- TABS: New Ticket / Check Ticket -->
+    <div class="contact-tabs">
+      <button class="tab-btn active" onclick="showContactTab('new')">
+        <i class="fas fa-paper-plane"></i> New Message
+      </button>
+      <button class="tab-btn" onclick="showContactTab('check')">
+        <i class="fas fa-search"></i> My Ticket
+      </button>
+    </div>
+
+    <!-- NEW TICKET -->
+    <div class="contact-tab-content active" id="contact-new">
+      <div class="contact-container">
+        <div class="contact-info">
+          <div class="contact-card">
+            <i class="fab fa-discord"></i>
+            <h3>Discord</h3>
+            <p>Join our server for quick answers</p>
+            <a href="https://discord.gg/VOTRE_LIEN" target="_blank" class="btn btn-outline">Join Discord</a>
+          </div>
+          <div class="contact-card">
+            <i class="fab fa-twitter"></i>
+            <h3>Twitter/X</h3>
+            <p>Follow us for updates</p>
+            <a href="https://twitter.com/YF7Tournaments" target="_blank" class="btn btn-outline">Follow</a>
+          </div>
+          <div class="contact-card">
+            <i class="fas fa-envelope"></i>
+            <h3>Email</h3>
+            <p>contact@yf7tournaments.fr</p>
+          </div>
+        </div>
+        <form class="contact-form" id="contactForm" onsubmit="submitContact(event)">
+          <h3>Send us a message</h3>
+          <div class="form-group">
+            <label>Name</label>
+            <input type="text" id="contactName" placeholder="Your name" required/>
+          </div>
+          <div class="form-group">
+            <label><i class="fab fa-discord"></i> Discord Username</label>
+            <input type="text" id="contactDiscord" placeholder="yourname or yourname#1234" required/>
+          </div>
+          <div class="form-group">
+            <label>Subject</label>
+            <select id="contactSubject">
+              <option>General Question</option>
+              <option>Partnership</option>
+              <option>Tournament Issue</option>
+              <option>Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Message</label>
+            <textarea id="contactMessage" rows="5" placeholder="Your message..." required></textarea>
+          </div>
+          <button type="submit" class="btn btn-primary">
+            <i class="fas fa-paper-plane"></i> Send Message
+          </button>
+          <!-- Ticket Created Success -->
+          <div id="contactSuccess" class="ticket-created-box" style="display:none">
+            <div class="ticket-created-inner">
+              <i class="fas fa-check-circle"></i>
+              <h4>Ticket Created!</h4>
+              <p>Your ticket number:</p>
+              <div class="ticket-code" id="ticketCodeDisplay"></div>
+              <p class="ticket-note">Save this code to check your ticket and our replies anytime.</p>
+              <button class="btn btn-outline" onclick="copyTicketCode()">
+                <i class="fas fa-copy"></i> Copy Code
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- CHECK TICKET -->
+    <div class="contact-tab-content" id="contact-check">
+      <div class="ticket-check-container">
+        <div class="ticket-check-form">
+          <h3><i class="fas fa-ticket-alt"></i> Check your ticket</h3>
+          <p>Enter your ticket code to see the conversation</p>
+          <div class="ticket-search-row">
+            <input type="text" id="ticketSearchInput" placeholder="Ex: YF7-4821" />
+            <button class="btn btn-primary" onclick="searchTicket()">
+              <i class="fas fa-search"></i> Search
+            </button>
+          </div>
+          <div id="ticketNotFound" class="error-msg" style="display:none">
+            ❌ Ticket not found. Check your code.
+          </div>
+        </div>
+
+        <!-- Ticket Chat Display -->
+        <div class="ticket-chat-box" id="ticketChatBox" style="display:none">
+          <div class="ticket-chat-header">
+            <div>
+              <span class="ticket-chat-code" id="tcCode"></span>
+              <span class="ticket-chat-subject" id="tcSubject"></span>
+            </div>
+            <span class="ticket-status-badge" id="tcStatus"></span>
+          </div>
+          <div class="ticket-chat-messages" id="tcMessages"></div>
+          <div class="ticket-chat-reply" id="tcReplyArea">
+            <textarea id="tcReplyInput" rows="3" placeholder="Your reply..."></textarea>
+            <button class="btn btn-primary" onclick="sendUserReply()">
+              <i class="fas fa-paper-plane"></i> Send
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SOCIALS PAGE ===== -->
+  <section class="page" id="page-socials">
+    <div class="page-header">
+      <h1>Our <span class="yellow">Socials</span></h1>
+      <p>Follow us everywhere</p>
+    </div>
+    <div class="socials-grid">
+      <a href="https://twitter.com/YF7Tournaments" target="_blank" class="social-card twitter">
+        <i class="fab fa-twitter"></i>
+        <h3>Twitter / X</h3>
+        <p>@YF7Tournaments</p>
+        <span class="social-btn">Follow</span>
+      </a>
+      <a href="https://discord.gg/VOTRE_LIEN" target="_blank" class="social-card discord">
+        <i class="fab fa-discord"></i>
+        <h3>Discord</h3>
+        <p>YF7 Tournaments</p>
+        <span class="social-btn">Join</span>
+      </a>
+      <a href="https://www.youtube.com/@YF7Tournaments" target="_blank" class="social-card youtube">
+        <i class="fab fa-youtube"></i>
+        <h3>YouTube</h3>
+        <p>@YF7Tournaments</p>
+        <span class="social-btn">Subscribe</span>
+      </a>
+      <a href="https://www.instagram.com/yf7tournaments" target="_blank" class="social-card instagram">
+        <i class="fab fa-instagram"></i>
+        <h3>Instagram</h3>
+        <p>@yf7tournaments</p>
+        <span class="social-btn">Follow</span>
+      </a>
+      <a href="https://www.tiktok.com/@yf7tournaments" target="_blank" class="social-card tiktok">
+        <i class="fab fa-tiktok"></i>
+        <h3>TikTok</h3>
+        <p>@yf7tournaments</p>
+        <span class="social-btn">Follow</span>
+      </a>
+    </div>
+    <div class="latest-tweets">
+      <h3><i class="fab fa-twitter"></i> Latest from <span class="yellow">@YF7Tournaments</span></h3>
+      <p style="color:#888;text-align:center;padding:2rem">Connect Twitter/X API to display latest tweets here.</p>
+    </div>
+  </section>
+
+  <!-- ===== ABOUT PAGE ===== -->
+  <section class="page" id="page-about">
+    <div class="page-header">
+      <h1>About <span class="yellow">Us</span></h1>
+    </div>
+    <div class="about-description" id="aboutDescription">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+    <div class="section-title">
+      <h2>Our <span class="yellow">Staff</span></h2>
+    </div>
+    <div class="staff-grid" id="staffGrid">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+    <div class="section-title">
+      <h2>Our <span class="yellow">Partners</span></h2>
+    </div>
+    <div class="partners-grid" id="partnersGrid">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+  </section>
+
+  <!-- ===== ADMIN PAGE ===== -->
+  <section class="page" id="page-admin">
+    <div id="adminLogin" class="admin-login">
+      <div class="login-card">
+        <img src="logo.png" alt="YF7" class="login-logo"/>
+        <h2>Admin <span class="yellow">Panel</span></h2>
+        <form onsubmit="adminLogin(event)">
+          <div class="form-group">
+            <label>Email</label>
+            <input type="email" id="adminEmail" placeholder="admin@yf7tournaments.fr" required/>
+          </div>
+          <div class="form-group">
+            <label>Password</label>
+            <input type="password" id="adminPassword" placeholder="••••••••" required/>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width:100%">
+            <i class="fas fa-lock"></i> Login
+          </button>
+          <div id="loginError" class="error-msg" style="display:none">Invalid credentials</div>
+        </form>
+      </div>
+    </div>
+
+    <div id="adminPanel" style="display:none">
+      <div class="admin-header">
+        <h1>Admin <span class="yellow">Panel</span></h1>
+        <button class="btn btn-outline" onclick="adminLogout()"><i class="fas fa-sign-out-alt"></i> Logout</button>
+      </div>
+
+      <div class="admin-tabs">
+        <button class="tab-btn active" onclick="showAdminTab('tournaments')">🏆 Tournaments</button>
+        <button class="tab-btn" onclick="showAdminTab('news')">📰 News</button>
+        <button class="tab-btn" onclick="showAdminTab('winning')">👑 Winning Teams</button>
+        <button class="tab-btn" onclick="showAdminTab('about')">👥 About</button>
+        <button class="tab-btn" onclick="showAdminTab('messages')">📩 Messages</button>
+        <button class="tab-btn" onclick="showAdminTab('esports')">🎮 Esports</button>
+      </div>
+
+      <!-- Admin: Tournaments -->
+      <div class="admin-tab-content active" id="admin-tournaments">
+        <div class="admin-form-card">
+          <h3>Add Tournament</h3>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Tournament Name</label>
+              <input type="text" id="tName" placeholder="YF7 Cup #1"/>
+            </div>
+            <div class="form-group">
+              <label>Date</label>
+              <input type="datetime-local" id="tDate"/>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Prize Pool</label>
+              <input type="text" id="tPrize" placeholder="€500"/>
+            </div>
+            <div class="form-group">
+              <label>Region</label>
+              <select id="tRegion">
+                <option>EU</option><option>NA</option><option>LATAM</option><option>Asia</option><option>MENA</option><option>Global</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Matcherino Link</label>
+            <input type="url" id="tLink" placeholder="https://matcherino.com/..."/>
+          </div>
+          <div class="form-group">
+            <label>Banner Image URL</label>
+            <input type="url" id="tImage" placeholder="https://..."/>
+          </div>
+          <div class="form-group">
+            <label>Description</label>
+            <textarea id="tDesc" rows="3" placeholder="Tournament description..."></textarea>
+          </div>
+          <button class="btn btn-primary" onclick="addTournament()">
+            <i class="fas fa-plus"></i> Add Tournament
+          </button>
+        </div>
+        <div class="admin-list" id="adminTournamentList"></div>
+      </div>
+
+      <!-- Admin: News -->
+      <div class="admin-tab-content" id="admin-news">
+        <div class="admin-form-card">
+          <h3>Publish Article</h3>
+          <div class="form-group">
+            <label>Title</label>
+            <input type="text" id="nTitle" placeholder="Article title"/>
+          </div>
+          <div class="form-group">
+            <label>Category</label>
+            <select id="nCategory">
+              <option>Announcement</option><option>Tournament Recap</option><option>Update</option><option>Community</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Cover Image URL</label>
+            <input type="url" id="nImage" placeholder="https://..."/>
+          </div>
+          <div class="form-group">
+            <label>Content</label>
+            <textarea id="nContent" rows="8" placeholder="Article content..."></textarea>
+          </div>
+          <button class="btn btn-primary" onclick="addNews()">
+            <i class="fas fa-newspaper"></i> Publish
+          </button>
+        </div>
+        <div class="admin-list" id="adminNewsList"></div>
+      </div>
+
+      <!-- Admin: Winning Teams -->
+      <div class="admin-tab-content" id="admin-winning">
+        <div class="admin-form-card">
+          <h3>Add Player/Team</h3>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Type</label>
+              <select id="wType">
+                <option value="player">Player</option>
+                <option value="team">Team</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Name</label>
+              <input type="text" id="wName" placeholder="Name"/>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Wins</label>
+              <input type="number" id="wWins" placeholder="0"/>
+            </div>
+            <div class="form-group">
+              <label>Total Earnings (€)</label>
+              <input type="number" id="wEarnings" placeholder="0"/>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Avatar/Logo URL</label>
+            <input type="url" id="wAvatar" placeholder="https://..."/>
+          </div>
+          <button class="btn btn-primary" onclick="addWinning()">
+            <i class="fas fa-plus"></i> Add
+          </button>
+        </div>
+        <div class="admin-list" id="adminWinningList"></div>
+      </div>
+
+      <!-- Admin: About -->
+      <div class="admin-tab-content" id="admin-about">
+        <div class="admin-form-card">
+          <h3>Organization Description</h3>
+          <textarea id="aboutText" rows="5" placeholder="Describe YF7 Tournaments..."></textarea>
+          <button class="btn btn-primary" onclick="saveAbout()" style="margin-top:1rem">
+            <i class="fas fa-save"></i> Save
+          </button>
+        </div>
+        <div class="admin-form-card">
+          <h3>Add Staff Member</h3>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Name</label>
+              <input type="text" id="sName" placeholder="Name"/>
+            </div>
+            <div class="form-group">
+              <label>Role</label>
+              <input type="text" id="sRole" placeholder="Tournament Director"/>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Profile Picture URL</label>
+            <input type="url" id="sPfp" placeholder="https://..."/>
+          </div>
+          <div class="form-group">
+            <label>Description</label>
+            <input type="text" id="sDesc" placeholder="Short bio..."/>
+          </div>
+          <button class="btn btn-primary" onclick="addStaff()">
+            <i class="fas fa-user-plus"></i> Add Staff
+          </button>
+        </div>
+        <div class="admin-list" id="adminStaffList"></div>
+        <div class="admin-form-card" style="margin-top:2rem">
+          <h3>Add Partner</h3>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Partner Name</label>
+              <input type="text" id="pName" placeholder="Partner name"/>
+            </div>
+            <div class="form-group">
+              <label>Website</label>
+              <input type="url" id="pUrl" placeholder="https://..."/>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Logo URL</label>
+            <input type="url" id="pLogo" placeholder="https://..."/>
+          </div>
+          <button class="btn btn-primary" onclick="addPartner()">
+            <i class="fas fa-handshake"></i> Add Partner
+          </button>
+        </div>
+        <div class="admin-list" id="adminPartnerList"></div>
+      </div>
+
+      <!-- Admin: Messages (Tickets) -->
+      <div class="admin-tab-content" id="admin-messages">
+        <div class="admin-tickets-header">
+          <h3>📩 Support Tickets</h3>
+          <div class="tickets-filter">
+            <button class="filter-btn active" onclick="filterTickets('all')">All</button>
+            <button class="filter-btn" onclick="filterTickets('open')">🟢 Open</button>
+            <button class="filter-btn" onclick="filterTickets('closed')">🔴 Closed</button>
+          </div>
+        </div>
+
+        <!-- Liste des tickets -->
+        <div class="admin-tickets-layout">
+          <div class="tickets-list" id="adminTicketsList"></div>
+
+          <!-- Chat admin -->
+          <div class="admin-ticket-chat" id="adminTicketChat" style="display:none">
+            <div class="ticket-chat-header">
+              <div>
+                <span class="ticket-chat-code" id="adminTcCode"></span>
+                <span class="ticket-chat-subject" id="adminTcSubject"></span>
+              </div>
+              <div class="ticket-chat-actions">
+                <span class="ticket-status-badge" id="adminTcStatus"></span>
+                <button class="btn btn-outline btn-sm" onclick="toggleTicketStatus()" id="adminTcToggleBtn"></button>
+                <button class="btn btn-danger btn-sm" onclick="deleteAdminTicket()" id="adminTcDeleteBtn" style="display:none; margin-left:.5rem;">🗑 Delete</button>
+              </div>
+            </div>
+            <div class="ticket-info-bar">
+              <span><i class="fab fa-discord"></i> <strong id="adminTcDiscord"></strong></span>
+              <span><i class="fas fa-user"></i> <strong id="adminTcName"></strong></span>
+              <span><i class="fas fa-clock"></i> <strong id="adminTcDate"></strong></span>
+            </div>
+            <div class="ticket-chat-messages" id="adminTcMessages"></div>
+            <div class="ticket-chat-reply">
+              <textarea id="adminTcReplyInput" rows="3" placeholder="Your reply to the user..."></textarea>
+              <button class="btn btn-primary" onclick="sendAdminReply()">
+                <i class="fas fa-paper-plane"></i> Reply
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Admin: Esports -->
+      <div class="admin-tab-content" id="admin-esports">
+        <div class="admin-form-card">
+          <h3>Add Leaderboard Entry</h3>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Region</label>
+              <select id="eRegion">
+                <option value="eu">EU</option><option value="na">NA</option>
+                <option value="latam">LATAM</option><option value="asia">Asia</option><option value="mena">MENA</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Player/Team Name</label>
+              <input type="text" id="eName" placeholder="Name"/>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Points</label>
+              <input type="number" id="ePoints" placeholder="0"/>
+            </div>
+            <div class="form-group">
+              <label>Country Flag (emoji)</label>
+              <input type="text" id="eFlag" placeholder="🇫🇷"/>
+            </div>
+          </div>
+          <button class="btn btn-primary" onclick="addLeaderboard()">
+            <i class="fas fa-plus"></i> Add Entry
+          </button>
+        </div>
+        <div class="admin-list" id="adminEsportsList"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="footer">
+    <div class="footer-content">
+      <div class="footer-logo">
+        <img src="../image/logo-sans-fond.png" alt="YF7"/>
+        <span>YF7 <span class="yellow">Tournaments</span></span>
+      </div>
+      <div class="footer-links">
+        <a href="#" onclick="showPage('home')">Home</a>
+        <a href="#" onclick="showPage('esports')">Esports</a>
+        <a href="#" onclick="showPage('news')">News</a>
+        <a href="#" onclick="showPage('contact')">Contact</a>
+      </div>
+      <div class="footer-socials">
+        <a href="https://discord.gg/amSbJxjDxq" target="_blank"><i class="fab fa-discord"></i></a>
+        <a href="https://x.com/YF7Tournaments" target="_blank"><i class="fab fa-twitter"></i></a>
+        <a href="https://youtube.com/@YF7_BS" target="_blank"><i class="fab fa-youtube"></i></a>
+        <a href="https://instagram.com/yf7_bs" target="_blank"><i class="fab fa-instagram"></i></a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p>© 2025 YF7 Tournaments. All rights reserved.</p>
+    </div>
+  </footer>
+
+  <script type="module" src="index.js"></script>
+</body>
+</html>
