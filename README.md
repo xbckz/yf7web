@@ -25,8 +25,8 @@ The admin panel is hidden from the public navbar. Access it directly at
 
 Default credentials (override with env vars):
 
-- Username: `admin`
-- Password: `admin`
+- Username: `yf7wantstoomuch`
+- Password: `YmhSBe12sd!Jwx1308`
 
 **⚠️ Change these before deploying anywhere public.**
 

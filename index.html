@@ -87,15 +87,32 @@
         </div>
       </div>
       <div class="brackets-container">
-        <h3><i class="fas fa-sitemap"></i> Brackets</h3>
-        <div class="brackets-tabs">
-          <button class="bracket-tab active" data-bracket="mq" onclick="showBracket(event, 'mq')">MQ Qualifiers</button>
-          <button class="bracket-tab" data-bracket="mf" onclick="showBracket(event, 'mf')">MF Finals</button>
+        <div class="brackets-header">
+          <h3><i class="fas fa-sitemap"></i> Brackets</h3>
+          <div class="brackets-controls">
+            <select id="bracketRegion" class="bracket-month" onchange="onBracketRegionChange()">
+              <option value="emea">EMEA</option>
+              <option value="northamerica">North America</option>
+              <option value="southamerica">South America</option>
+              <option value="eastasia">East Asia</option>
+            </select>
+            <select id="bracketMonth" class="bracket-month" onchange="onBracketMonthChange()"></select>
+            <button class="bracket-fs-btn" type="button" onclick="toggleBracketFullscreen()" title="Fullscreen (Esc to exit)">
+              <i class="fas fa-expand"></i>
+            </button>
+          </div>
         </div>
-        <div class="bracket-display" id="bracketDisplay">
-          <div class="bracket-placeholder">
-            <i class="fas fa-sitemap"></i>
-            <p>No bracket published yet for this region</p>
+        <div class="brackets-tabs">
+          <button class="bracket-tab active" data-bracket="q1" onclick="showBracket(event, 'q1')">Qualifier 1</button>
+          <button class="bracket-tab" data-bracket="q2" onclick="showBracket(event, 'q2')">Qualifier 2</button>
+          <button class="bracket-tab" data-bracket="mf" onclick="showBracket(event, 'mf')">Monthly Finals</button>
+        </div>
+        <div class="bracket-frame" id="bracketFrame">
+          <div class="bracket-display" id="bracketDisplay">
+            <div class="bracket-placeholder">
+              <i class="fas fa-sitemap"></i>
+              <p>No bracket published yet for this region</p>
+            </div>
           </div>
         </div>
       </div>
@@ -329,7 +346,7 @@
         <form onsubmit="adminLogin(event)">
           <div class="form-group">
             <label>Username</label>
-            <input type="text" id="adminEmail" placeholder="admin" required autocomplete="username"/>
+            <input type="text" id="adminEmail" placeholder="Enter username" required autocomplete="username"/>
           </div>
           <div class="form-group">
             <label>Password</label>
@@ -498,6 +515,11 @@
             <input type="text" id="wName" placeholder="YF7 Tournament #1 - Winners"/>
           </div>
           <div class="form-group">
+            <label>Matcherino Tournament ID (optional)</label>
+            <input type="text" id="wMatcherinoId" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 164547"/>
+            <p class="form-hint">When set, clicking the winner picture opens that tournament on Matcherino.</p>
+          </div>
+          <div class="form-group">
             <label>Screenshot</label>
             <input type="file" id="wAvatarFile" accept="image/*"/>
             <input type="hidden" id="wAvatar"/>
@@ -514,7 +536,10 @@
       <div class="admin-tab-content" id="admin-about">
         <div class="admin-form-card">
           <h3>Organization Description</h3>
-          <textarea id="aboutText" rows="5" placeholder="Describe YF7 Tournaments..."></textarea>
+          <div class="form-group">
+            <label for="aboutText">Description</label>
+            <textarea id="aboutText" class="admin-about-textarea" rows="9" placeholder="Describe YF7 Tournaments..."></textarea>
+          </div>
           <div class="form-group" style="margin-top:1rem">
             <label>Discord Invite URL</label>
             <input type="url" id="aboutDiscord" placeholder="https://discord.gg/..."/>

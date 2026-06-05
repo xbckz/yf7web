@@ -6,10 +6,11 @@ Run:
     python server.py
 
 Then open: http://localhost:5000
-Admin login: admin@yf7tournaments.fr / yf7tournaments2026  (change ADMIN_PASSWORD env var to override)
+Admin credentials are REQUIRED via env vars YF7_ADMIN_EMAIL and YF7_ADMIN_PASSWORD.
 """
 import os
 import re
+import hmac
 import html
 import sqlite3
 import secrets
@@ -39,7 +40,7 @@ from flask_cors import CORS
 MATCHERINO_BOUNTY_URL = "https://api.matcherino.com/__api/bounties/findById"
 MATCHERINO_TOTAL_SPENT_URL = "https://api.matcherino.com/__api/bounties/totalSpent"
 MATCHERINO_PRIZE_POOL_SHARE = Decimal("0.75")
-MATCHERINO_CACHE_TTL = 12 * 60 * 60
+MATCHERINO_CACHE_TTL = 60 * 60
 _matcherino_cache = {}
 _matcherino_lock = threading.Lock()
 
@@ -65,16 +66,31 @@ DB_PATH = BASE_DIR / "yf7.db"
 UPLOAD_DIR = BASE_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-ADMIN_EMAIL = os.environ.get("YF7_ADMIN_EMAIL", "admin")
-ADMIN_PASSWORD = os.environ.get("YF7_ADMIN_PASSWORD", "admin")
+ADMIN_EMAIL    = os.environ.get("YF7_ADMIN_EMAIL")
+ADMIN_PASSWORD = os.environ.get("YF7_ADMIN_PASSWORD")
+if not ADMIN_EMAIL or not ADMIN_PASSWORD:
+    raise SystemExit(
+        "FATAL: YF7_ADMIN_EMAIL and YF7_ADMIN_PASSWORD must be set as "
+        "environment variables before starting the server."
+    )
 TOURNAMENT_REGIONS = {"EMEA", "North America", "South America", "East Asia"}
 BRACKET_REGIONS = {"emea", "northamerica", "southamerica", "eastasia"}
 
 app = Flask(__name__, static_folder=None)
 app.secret_key = os.environ.get("YF7_SECRET_KEY", secrets.token_hex(32))
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024  # 8 MB uploads
-CORS(app, supports_credentials=True)
-
+# Harden session cookie. SameSite=Lax blocks cross-site POSTs from carrying
+# the cookie (CSRF mitigation); HttpOnly prevents JS access. Secure is set
+# automatically when running behind HTTPS (assumed in production).
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.environ.get("YF7_COOKIE_SECURE", "0") == "1",
+    SESSION_COOKIE_NAME="yf7_sess",
+)
+# CORS without credentials by default; the admin SPA is same-origin so we
+# don't need to allow cookies on cross-origin requests.
+CORS(app, supports_credentials=False)
 
 # ---------- DB ----------
 
@@ -121,7 +137,8 @@ CREATE TABLE IF NOT EXISTS winning (
     name TEXT NOT NULL,
     wins INTEGER DEFAULT 0,
     earnings INTEGER DEFAULT 0,
-    avatar TEXT
+    avatar TEXT,
+    matcherino_id INTEGER
 );
 CREATE TABLE IF NOT EXISTS esports (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -185,6 +202,9 @@ def init_db():
     cols = [r[1] for r in conn.execute("PRAGMA table_info(tournaments)").fetchall()]
     if "matcherino_id" not in cols:
         conn.execute("ALTER TABLE tournaments ADD COLUMN matcherino_id INTEGER")
+    winning_cols = [r[1] for r in conn.execute("PRAGMA table_info(winning)").fetchall()]
+    if "matcherino_id" not in winning_cols:
+        conn.execute("ALTER TABLE winning ADD COLUMN matcherino_id INTEGER")
     staff_cols = [r[1] for r in conn.execute("PRAGMA table_info(staff)").fetchall()]
     if "discord" not in staff_cols:
         conn.execute("ALTER TABLE staff ADD COLUMN discord TEXT")
@@ -283,13 +303,72 @@ def uploads(fname):
 
 # ---------- auth ----------
 
+# Brute-force throttle. Per-client (remote IP), in-memory.
+# After LOGIN_MAX_TRIES failures in LOGIN_WINDOW seconds, lock out for
+# LOGIN_LOCKOUT seconds. Counters reset on success.
+LOGIN_MAX_TRIES = 5
+LOGIN_WINDOW    = 5 * 60
+LOGIN_LOCKOUT   = 15 * 60
+_login_attempts = {}     # ip -> [list of failed-attempt timestamps]
+_login_lock     = threading.Lock()
+
+
+def _login_client_id():
+    # Honor X-Forwarded-For only when explicitly configured to trust proxies.
+    if os.environ.get("YF7_TRUST_PROXY") == "1":
+        fwd = request.headers.get("X-Forwarded-For", "")
+        if fwd:
+            return fwd.split(",")[0].strip()
+    return request.remote_addr or "unknown"
+
+
+def _login_locked_seconds(ip):
+    """Return >0 seconds remaining if this IP is locked out, else 0."""
+    now = time.time()
+    with _login_lock:
+        attempts = [t for t in _login_attempts.get(ip, []) if now - t < LOGIN_WINDOW]
+        _login_attempts[ip] = attempts
+        if len(attempts) >= LOGIN_MAX_TRIES:
+            wait = LOGIN_LOCKOUT - (now - attempts[-LOGIN_MAX_TRIES])
+            if wait > 0:
+                return int(wait) + 1
+    return 0
+
+
+def _login_record_failure(ip):
+    with _login_lock:
+        _login_attempts.setdefault(ip, []).append(time.time())
+
+
+def _login_reset(ip):
+    with _login_lock:
+        _login_attempts.pop(ip, None)
+
+
 @app.post("/api/admin/login")
 def admin_login():
+    ip = _login_client_id()
+    wait = _login_locked_seconds(ip)
+    if wait:
+        return jsonify({"error": "too many attempts, try again later"}), 429
+
     data = parse_json()
-    if data.get("email") == ADMIN_EMAIL and data.get("password") == ADMIN_PASSWORD:
+    email = str(data.get("email") or "")
+    password = str(data.get("password") or "")
+
+    # Constant-time comparison on both fields, no short-circuit on email.
+    email_ok = hmac.compare_digest(email.encode("utf-8"),
+                                   ADMIN_EMAIL.encode("utf-8"))
+    pw_ok    = hmac.compare_digest(password.encode("utf-8"),
+                                   ADMIN_PASSWORD.encode("utf-8"))
+    if email_ok and pw_ok:
+        _login_reset(ip)
+        session.clear()
         session["admin"] = True
         session.permanent = True
         return jsonify({"ok": True})
+
+    _login_record_failure(ip)
     return jsonify({"error": "invalid credentials"}), 401
 
 
@@ -355,10 +434,28 @@ def tournament_status(t):
     return "past"
 
 
+def tournament_sort_key(t):
+    """Show live events first, then nearest upcoming, then recent finished."""
+    status = t.get("computed_status") or tournament_status(t)
+    status_order = {"live": 0, "upcoming": 1, "past": 2}
+    try:
+        raw = t.get("date")
+        raw = raw.replace("Z", "+00:00") if isinstance(raw, str) else raw
+        event_date = datetime.fromisoformat(raw)
+        if event_date.tzinfo is None:
+            event_date = event_date.replace(tzinfo=timezone.utc)
+        timestamp = event_date.timestamp()
+    except Exception:
+        timestamp = float("inf")
+    if status == "past" and timestamp != float("inf"):
+        timestamp = -timestamp
+    return (status_order.get(status, 3), timestamp, t.get("id") or 0)
+
+
 @app.get("/api/tournaments")
 def list_tournaments():
     db = get_db()
-    rows = db.execute("SELECT * FROM tournaments ORDER BY date DESC").fetchall()
+    rows = db.execute("SELECT * FROM tournaments").fetchall()
     out = []
     changed = False
     for r in rows:
@@ -380,6 +477,7 @@ def list_tournaments():
         out.append(d)
     if changed:
         db.commit()
+    out.sort(key=tournament_sort_key)
     return jsonify(out)
 
 
@@ -595,16 +693,16 @@ def _fetch_matcherino_info(bounty_id):
 
 
 def _needs_matcherino_refresh(t):
-    if not t.get("matcherino_id"):
-        return False
-    prize = (t.get("prize") or "").strip()
-    image = (t.get("image") or "").strip()
-    return not image or prize in {"", "-", "$0", "$0.00", "None", "null"}
+    return bool(t.get("matcherino_id"))
 
 
 def _merge_matcherino_row(t, info):
     changed = False
-    for key in ("prize", "image", "link"):
+    incoming_prize = info.get("prize")
+    if incoming_prize and incoming_prize != t.get("prize"):
+        t["prize"] = incoming_prize
+        changed = True
+    for key in ("image", "link"):
         current = (t.get(key) or "").strip() if isinstance(t.get(key), str) else t.get(key)
         incoming = info.get(key)
         if incoming and (not current or current in {"-", "$0", "$0.00", "None", "null"}):
@@ -745,11 +843,23 @@ def list_winning():
 @require_admin
 def add_winning():
     d = parse_json()
+    matcherino_id = d.get("matcherino_id")
+    if matcherino_id in (None, ""):
+        matcherino_id = None
+    else:
+        try:
+            matcherino_id = int(matcherino_id)
+        except (TypeError, ValueError):
+            return jsonify({"error": "matcherino_id must be numeric"}), 400
+        if matcherino_id <= 0:
+            return jsonify({"error": "matcherino_id must be positive"}), 400
     db = get_db()
     cur = db.execute(
-        "INSERT INTO winning(type,name,wins,earnings,avatar) VALUES(?,?,?,?,?)",
+        """INSERT INTO winning(type,name,wins,earnings,avatar,matcherino_id)
+           VALUES(?,?,?,?,?,?)""",
         (d.get("type", "player"), d.get("name"),
-         int(d.get("wins") or 0), int(d.get("earnings") or 0), d.get("avatar"))
+         int(d.get("wins") or 0), int(d.get("earnings") or 0),
+         d.get("avatar"), matcherino_id)
     )
     db.commit()
     return jsonify({"id": cur.lastrowid})
@@ -806,6 +916,184 @@ def get_brackets(region, btype):
         "SELECT * FROM brackets WHERE region=? AND type=?", (region, btype)
     ).fetchall()
     return jsonify([row_to_dict(r) for r in rows])
+
+
+# ---------- live brackets ----------
+# Source-agnostic routes and payloads. Internal variable names refer to the
+# poller's cache layout; nothing in the HTTP surface or response JSON
+# discloses the upstream provider or any provider-specific identifiers.
+
+ATHLOS_CACHE_DIR = BASE_DIR / "data" / "athlos_cache"
+
+# Region name fragments as they appear in upstream segment names (lowercased).
+ATHLOS_REGION_KEYWORDS = {
+    "emea":         ("europe", "emea", "middle east"),
+    "northamerica": ("americas norte", "north america", "norteamerica"),
+    "southamerica": ("americas sur", "south america", "sudamerica", "latam"),
+    "eastasia":     ("east asia", "eastasia"),
+}
+
+# Stage classification. Each kind has positive keywords (any must match) and
+# negative keywords (none may match). Matched against both the level-0 stage
+# name and the child segment's type.name.
+ATHLOS_STAGE_KINDS = {
+    "q1": {"any": ("day 1",),                 "none": ()},
+    "q2": {"any": ("day 2",),                 "none": ()},
+    "mf": {"any": ("final",),                 "none": ("qualifier",)},
+}
+
+
+def _load_athlos_json(name):
+    path = ATHLOS_CACHE_DIR / name
+    if not path.is_file():
+        return None
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _seg_date_key(seg):
+    """Sort key: prefer date.from, fall back to id (UUID time is monotonic)."""
+    d = (seg.get("date") or {}).get("from") or ""
+    return (d, seg.get("id") or "")
+
+
+def _seg_month(seg):
+    """Return YYYY-MM derived from a segment's date.from, or ''."""
+    d = (seg.get("date") or {}).get("from") or ""
+    return d[:7] if len(d) >= 7 else ""
+
+
+def _classify_stage(stage_name, type_name, kind):
+    """Return True if the names match the requested stage kind (q1/q2/mf)."""
+    rules = ATHLOS_STAGE_KINDS.get(kind)
+    if not rules:
+        return False
+    blob = f"{stage_name} {type_name}".lower()
+    if any(n in blob for n in rules["none"]):
+        return False
+    return any(k in blob for k in rules["any"])
+
+
+def _iter_leaf_segments():
+    """Yield (child_seg, stage_parent_name) for every level-1 region segment.
+
+    stage_parent_name is the level-0 stage's name (for context); if the leaf is
+    flat (no parent), fall back to its own path[].name."""
+    segs = _load_athlos_json("segments.json")
+    if not segs or not isinstance(segs.get("data"), list):
+        return
+    seen = set()
+    for stage in segs["data"]:
+        if stage.get("level") != 0:
+            continue
+        stage_name = stage.get("name") or ""
+        for child in stage.get("children") or []:
+            cid = child.get("id")
+            if cid and cid not in seen:
+                seen.add(cid)
+                yield child, stage_name
+    for seg in segs["data"]:
+        if seg.get("level") != 1:
+            continue
+        sid = seg.get("id")
+        if sid in seen:
+            continue
+        seen.add(sid)
+        path_names = " ".join((p.get("name") or "") for p in (seg.get("path") or []))
+        yield seg, path_names
+
+
+def _resolve_athlos_segment(region, kind, month=None):
+    """Return the leaf segment ID for (region, kind, month), or None.
+
+    month: optional "YYYY-MM" filter. If None, returns the most recent."""
+    region_keys = ATHLOS_REGION_KEYWORDS.get(region)
+    if not region_keys or kind not in ATHLOS_STAGE_KINDS:
+        return None
+
+    def region_matches(name):
+        n = (name or "").lower()
+        return any(k in n for k in region_keys)
+
+    candidates = []
+    for child, stage_name in _iter_leaf_segments():
+        type_name = ((child.get("type") or {}).get("name") or "")
+        if not _classify_stage(stage_name, type_name, kind):
+            continue
+        if not region_matches(child.get("name") or ""):
+            continue
+        if month and _seg_month(child) != month:
+            continue
+        candidates.append(child)
+
+    if not candidates:
+        return None
+    candidates.sort(key=_seg_date_key, reverse=True)
+    return candidates[0].get("id")
+
+
+def _sanitize_competitor(c):
+    """Strip provider-specific identifiers; keep only what the UI needs."""
+    if not isinstance(c, dict):
+        return {}
+    roster = c.get("roster") or {}
+    seed   = c.get("seed") or {}
+    result = c.get("result") or {}
+    return {
+        "number":    c.get("number"),
+        "isBye":     bool(c.get("isBye")),
+        "placement": c.get("placement"),
+        "roster":    {"name": roster.get("name")},
+        "seed":      {"number": seed.get("number")},
+        "result":    {"score":   result.get("score"),
+                      "forfeit": bool(result.get("forfeit"))},
+    }
+
+
+def _sanitize_match(m):
+    if not isinstance(m, dict):
+        return {}
+    return {
+        "roundNumber": m.get("roundNumber"),
+        "matchNumber": m.get("matchNumber"),
+        "state":       m.get("state"),
+        "isBye":       bool(m.get("isBye")),
+        "competitors": [_sanitize_competitor(c) for c in (m.get("competitors") or [])],
+    }
+
+
+@app.get("/api/live-brackets/months")
+def get_live_bracket_months():
+    """Return sorted (newest-first) list of YYYY-MM months that have brackets."""
+    months = set()
+    for child, _stage_name in _iter_leaf_segments():
+        m = _seg_month(child)
+        if m:
+            months.add(m)
+    return jsonify(sorted(months, reverse=True))
+
+
+@app.get("/api/live-brackets/<region>/<kind>")
+def get_live_bracket(region, kind):
+    region = region.lower()
+    kind   = kind.lower()
+    if region not in ATHLOS_REGION_KEYWORDS or kind not in ATHLOS_STAGE_KINDS:
+        return jsonify({"error": "unknown region or stage"}), 400
+
+    month = (request.args.get("month") or "").strip() or None
+    seg_id = _resolve_athlos_segment(region, kind, month=month)
+    if not seg_id:
+        return jsonify({"month": month, "matches": []})
+
+    data = _load_athlos_json(f"bracket_{seg_id}.json")
+    raw  = (data or {}).get("data") or []
+    return jsonify({
+        "month":   month,
+        "matches": [_sanitize_match(m) for m in raw],
+    })
 
 
 @app.post("/api/brackets")
@@ -1496,6 +1784,13 @@ def get_tweets():
                       "tweet API and all mirrors are currently blocked."),
         }), 503
     return jsonify({"items": items, "source": source, "cached": False})
+
+
+try:
+    import athlos_poller
+    athlos_poller.start()
+except Exception as _e:
+    print(f"athlos_poller failed to start: {_e}")
 
 
 if __name__ == "__main__":

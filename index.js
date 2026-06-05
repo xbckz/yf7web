@@ -245,6 +245,7 @@ window.addEventListener("scroll", () => {
 // ===== TOURNAMENTS =====
 let allTournaments = [];
 let tournamentFilter = "all";
+const TOURNAMENT_REFRESH_INTERVAL = 60 * 60 * 1000;
 
 async function loadTournaments() {
   try {
@@ -297,11 +298,16 @@ function filterTournaments(ev, kind) {
   renderTournaments();
 }
 
+setInterval(loadTournaments, TOURNAMENT_REFRESH_INTERVAL);
+
 // ===== ESPORTS =====
 let currentRegion = "emea";
-let currentBracket = "mq";
+let currentBracketRegion = "emea";
+let currentBracket = "q1";
+let currentBracketMonth = "";
+let bracketMonthsLoaded = false;
 const ESPORTS_REGIONS = ["emea", "northamerica", "southamerica", "eastasia"];
-const BRACKET_TYPES = ["mq", "mf"];
+const BRACKET_TYPES = ["q1", "q2", "mf"];
 const leaderboardCache = new Map();
 const leaderboardRequests = new Map();
 const bracketCache = new Map();
@@ -316,11 +322,21 @@ function warmImages(urls) {
 
 function showRegion(ev, region) {
   currentRegion = region;
+  currentBracketRegion = region;
   document.querySelectorAll(".regions-tabs .tab-btn").forEach(b => b.classList.remove("active"));
   ev.currentTarget.classList.add("active");
   document.getElementById("currentRegion").textContent = regionLabel(region);
+  const sel = document.getElementById("bracketRegion");
+  if (sel) sel.value = region;
   loadLeaderboard(region);
-  loadBracket(region, currentBracket);
+  loadBracket(currentBracketRegion, currentBracket);
+}
+
+function onBracketRegionChange() {
+  const sel = document.getElementById("bracketRegion");
+  if (!sel) return;
+  currentBracketRegion = sel.value;
+  loadBracket(currentBracketRegion, currentBracket, { showLoading: true });
 }
 
 function fetchLeaderboard(region) {
@@ -341,6 +357,8 @@ function fetchLeaderboard(region) {
 function renderLeaderboard(data) {
   const table = document.getElementById("leaderboardTable");
   const rows = (data.items || []).slice(0, 10);
+  // After every leaderboard re-render the standings box may resize.
+  queueMicrotask(() => { if (typeof syncBracketHeight === "function") syncBracketHeight(); });
   if (!rows.length) {
     table.innerHTML = `<p class="empty">No standings available for this region yet.</p>`;
     return;
@@ -390,64 +408,336 @@ function showBracket(ev, type) {
   currentBracket = type;
   document.querySelectorAll(".brackets-tabs .bracket-tab").forEach(b => b.classList.remove("active"));
   ev.currentTarget.classList.add("active");
-  loadBracket(currentRegion, type);
+  loadBracket(currentBracketRegion, type);
 }
 
-function bracketKey(region, type) {
-  return `${region}:${type}`;
+function bracketKey(region, type, month) {
+  return `${region}:${type}:${month || ""}`;
 }
 
-function fetchBracket(region, type) {
-  const key = bracketKey(region, type);
-  if (bracketCache.has(key)) return Promise.resolve(bracketCache.get(key));
-  if (bracketRequests.has(key)) return bracketRequests.get(key);
+function fetchBracket(region, type, month, { force = false } = {}) {
+  const key = bracketKey(region, type, month);
+  if (!force && bracketRequests.has(key)) return bracketRequests.get(key);
 
-  const request = api(`/api/brackets/${region}/${type}`)
-    .then(items => {
-      bracketCache.set(key, items);
-      warmImages(items.map(item => item.image));
-      return items;
+  const url = month
+    ? `/api/live-brackets/${region}/${type}?month=${encodeURIComponent(month)}`
+    : `/api/live-brackets/${region}/${type}`;
+  const request = api(url)
+    .then(data => {
+      bracketCache.set(key, data);
+      return data;
     })
     .finally(() => bracketRequests.delete(key));
-  bracketRequests.set(key, request);
+  if (!force) bracketRequests.set(key, request);
   return request;
 }
 
-function renderBracket(items, region, type) {
+function bracketTypeLabel(type) {
+  return type === "q1" ? "Qualifier 1"
+       : type === "q2" ? "Qualifier 2"
+       : type === "mf" ? "Monthly Finals"
+       : type.toUpperCase();
+}
+
+function monthLabel(yyyymm) {
+  if (!yyyymm) return "";
+  const [y, m] = yyyymm.split("-");
+  const names = ["January","February","March","April","May","June",
+                 "July","August","September","October","November","December"];
+  const idx = parseInt(m, 10) - 1;
+  return (names[idx] || m) + " " + y;
+}
+
+async function ensureBracketMonths() {
+  if (bracketMonthsLoaded) return;
+  bracketMonthsLoaded = true;
+  const sel = document.getElementById("bracketMonth");
+  if (!sel) return;
+  try {
+    const months = await api("/api/live-brackets/months");
+    if (!Array.isArray(months) || !months.length) {
+      sel.innerHTML = `<option value="">Latest</option>`;
+      return;
+    }
+    sel.innerHTML = months.map(m =>
+      `<option value="${esc(m)}">${esc(monthLabel(m))}</option>`
+    ).join("");
+    currentBracketMonth = months[0];
+    sel.value = currentBracketMonth;
+  } catch (_e) {
+    sel.innerHTML = `<option value="">Latest</option>`;
+  }
+}
+
+function onBracketMonthChange() {
+  const sel = document.getElementById("bracketMonth");
+  currentBracketMonth = sel ? sel.value : "";
+  loadBracket(currentBracketRegion, currentBracket, { showLoading: true });
+}
+
+function setBracketFullscreen(on) {
+  const frame = document.getElementById("bracketFrame");
+  if (!frame) return;
+  const isOn = frame.classList.contains("bracket-fullscreen");
+  if (on === isOn) return;
+  frame.classList.toggle("bracket-fullscreen", on);
+  document.body.classList.toggle("bracket-fs-lock", on);
+  const icon = document.querySelector(".bracket-fs-btn i");
+  if (icon) {
+    icon.classList.toggle("fa-expand",  !on);
+    icon.classList.toggle("fa-compress", on);
+  }
+  // Floating exit button only present while fullscreen
+  let exitBtn = document.getElementById("bracketFsExit");
+  if (on && !exitBtn) {
+    exitBtn = document.createElement("button");
+    exitBtn.id = "bracketFsExit";
+    exitBtn.className = "bracket-fs-exit";
+    exitBtn.type = "button";
+    exitBtn.title = "Exit fullscreen (Esc)";
+    exitBtn.innerHTML = `<i class="fas fa-times"></i>`;
+    exitBtn.onclick = () => setBracketFullscreen(false);
+    frame.appendChild(exitBtn);
+  } else if (!on && exitBtn) {
+    exitBtn.remove();
+  }
+  if (typeof syncBracketHeight === "function") syncBracketHeight();
+  scheduleBracketConnectors();
+}
+
+function toggleBracketFullscreen() {
+  const frame = document.getElementById("bracketFrame");
+  if (!frame) return;
+  setBracketFullscreen(!frame.classList.contains("bracket-fullscreen"));
+}
+
+/* Sync the bracket frame's height with the standings box next to it, so the
+   two columns are visually identical in height regardless of bracket content.
+   In fullscreen mode the height override is cleared. */
+function syncBracketHeight() {
+  const frame = document.getElementById("bracketFrame");
+  const lb    = document.querySelector(".leaderboard-container");
+  const bc    = document.querySelector(".brackets-container");
+  if (!frame || !lb || !bc) return;
+  if (frame.classList.contains("bracket-fullscreen")) {
+    frame.style.height = "";
+    return;
+  }
+  const lbHeight = lb.getBoundingClientRect().height;
+  // height available for the frame = standings height − everything above it
+  // inside the brackets container.
+  let usedAbove = 0;
+  for (const child of bc.children) {
+    if (child === frame) break;
+    usedAbove += child.getBoundingClientRect().height;
+  }
+  const cs = getComputedStyle(bc);
+  const padV = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+  const target = Math.max(160, lbHeight - usedAbove - padV);
+  frame.style.height = target + "px";
+  scheduleBracketConnectors();
+}
+
+let _bracketSyncBound = false;
+function bindBracketHeightSync() {
+  if (_bracketSyncBound) return;
+  _bracketSyncBound = true;
+  const lb = document.querySelector(".leaderboard-container");
+  if (!lb) return;
+  if (typeof ResizeObserver !== "undefined") {
+    new ResizeObserver(() => {
+      syncBracketHeight();
+      scheduleBracketConnectors();
+    }).observe(lb);
+  }
+  window.addEventListener("resize", () => {
+    syncBracketHeight();
+    scheduleBracketConnectors();
+  });
+  // Initial pass + a delayed retry to catch async content (logos / fonts).
+  syncBracketHeight();
+  setTimeout(syncBracketHeight, 250);
+  setTimeout(syncBracketHeight, 1200);
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    const frame = document.getElementById("bracketFrame");
+    if (frame && frame.classList.contains("bracket-fullscreen")) {
+      setBracketFullscreen(false);
+    }
+  }
+});
+
+function competitorHtml(c) {
+  if (!c || c.isBye || !c.roster || !c.roster.name) {
+    return `<div class="bm-side bm-bye"><span class="bm-name">BYE</span></div>`;
+  }
+  const name  = esc(c.roster.name);
+  const score = (c.result && c.result.score != null) ? c.result.score : "";
+  const won   = c.placement === 1;
+  const seed  = (c.seed && c.seed.number != null) ? c.seed.number : "";
+  return `
+    <div class="bm-side ${won ? "bm-winner" : ""}">
+      ${seed !== "" ? `<span class="bm-seed">${seed}</span>` : ""}
+      <span class="bm-name">${name}</span>
+      <span class="bm-score">${score}</span>
+    </div>`;
+}
+
+let bracketConnectorFrame = 0;
+
+function scheduleBracketConnectors() {
+  cancelAnimationFrame(bracketConnectorFrame);
+  bracketConnectorFrame = requestAnimationFrame(() => {
+    drawBracketConnectors();
+    setTimeout(drawBracketConnectors, 80);
+  });
+}
+
+function drawBracketConnectors() {
+  const grid = document.querySelector("#bracketDisplay .bm-grid");
+  if (!grid) return;
+
+  grid.querySelector(".bm-connectors")?.remove();
+  const rounds = [...grid.querySelectorAll(".bm-round")];
+  if (rounds.length < 2) return;
+
+  const gridRect = grid.getBoundingClientRect();
+  const width = Math.max(grid.scrollWidth, Math.ceil(gridRect.width));
+  const height = Math.max(grid.scrollHeight, Math.ceil(gridRect.height));
+  const paths = [];
+
+  for (let ri = 0; ri < rounds.length - 1; ri++) {
+    const sourceBox = rounds[ri].querySelector(".bm-round-matches");
+    const targetBox = rounds[ri + 1].querySelector(".bm-round-matches");
+    if (!sourceBox || !targetBox) continue;
+
+    const sources = [...sourceBox.querySelectorAll(".bm-match")];
+    const targets = [...targetBox.querySelectorAll(".bm-match")];
+
+    targets.forEach((target, ti) => {
+      const pair = sources.slice(ti * 2, ti * 2 + 2);
+      if (!pair.length) return;
+
+      const targetRect = target.getBoundingClientRect();
+      const targetX = targetRect.left - gridRect.left;
+      const targetY = targetRect.top - gridRect.top + targetRect.height / 2;
+      const sourcePoints = pair.map(source => {
+        const rect = source.getBoundingClientRect();
+        return {
+          x: rect.right - gridRect.left,
+          y: rect.top - gridRect.top + rect.height / 2,
+        };
+      });
+      const sourceX = Math.max(...sourcePoints.map(point => point.x));
+      const middleX = sourceX + Math.max(8, (targetX - sourceX) / 2);
+
+      sourcePoints.forEach(point => {
+        paths.push(`M ${point.x} ${point.y} H ${middleX}`);
+      });
+      const connectorYs = [...sourcePoints.map(point => point.y), targetY];
+      const topY = Math.min(...connectorYs);
+      const bottomY = Math.max(...connectorYs);
+      if (bottomY > topY) {
+        paths.push(`M ${middleX} ${topY} V ${bottomY}`);
+      }
+      paths.push(`M ${middleX} ${targetY} H ${targetX}`);
+    });
+  }
+
+  if (!paths.length) return;
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.classList.add("bm-connectors");
+  svg.setAttribute("width", width);
+  svg.setAttribute("height", height);
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", paths.join(" "));
+  svg.appendChild(path);
+  grid.prepend(svg);
+}
+
+function renderBracket(data, region, type) {
   const box = document.getElementById("bracketDisplay");
-  if (!items.length) {
+  const matches = (data && data.matches) || [];
+  if (!matches.length) {
     box.innerHTML = `
       <div class="bracket-placeholder">
         <i class="fas fa-sitemap"></i>
-        <p>No ${type.toUpperCase()} bracket published for ${esc(regionLabel(region))} yet</p>
+        <p>No ${esc(bracketTypeLabel(type))} bracket for ${esc(regionLabel(region))}${currentBracketMonth ? " — " + esc(monthLabel(currentBracketMonth)) : ""}</p>
       </div>`;
     return;
   }
-  box.innerHTML = items.map(b => `
-    <div class="bracket-item">
-      ${b.label ? `<h4>${esc(b.label)}</h4>` : ""}
-      ${b.image ? `<img src="${esc(b.image)}" alt="bracket"/>` : ""}
-      ${b.link ? `<a class="btn btn-outline" href="${esc(b.link)}" target="_blank" rel="noopener"><i class="fas fa-external-link-alt"></i> Open bracket</a>` : ""}
-    </div>`).join("");
+
+  // Group by round, sort by matchNumber
+  const rounds = new Map();
+  for (const m of matches) {
+    const r = m.roundNumber || 0;
+    if (!rounds.has(r)) rounds.set(r, []);
+    rounds.get(r).push(m);
+  }
+  const roundKeys = [...rounds.keys()].sort((a, b) => a - b);
+  for (const k of roundKeys) {
+    rounds.get(k).sort((a, b) => (a.matchNumber || 0) - (b.matchNumber || 0));
+  }
+
+  const matchHtml = (m) => {
+    const cs = m.competitors || [];
+    const top = cs.find(c => c.number === 1) || cs[0];
+    const bot = cs.find(c => c.number === 2) || cs[1];
+    return `
+      <div class="bm-match" data-state="${esc(m.state || "")}">
+        ${competitorHtml(top)}
+        ${competitorHtml(bot)}
+      </div>`;
+  };
+
+  const cols = roundKeys.map((r, ri) => {
+    const ms = rounds.get(r);
+    const isLast = ri === roundKeys.length - 1;
+    let body;
+    if (isLast || ms.length < 2) {
+      body = ms.map(matchHtml).join("");
+    } else {
+      // Wrap consecutive pairs so CSS can draw bracket connectors per pair
+      const pairs = [];
+      for (let i = 0; i < ms.length; i += 2) {
+        pairs.push(ms.slice(i, i + 2));
+      }
+      body = pairs.map(p =>
+        `<div class="bm-pair">${p.map(matchHtml).join("")}</div>`
+      ).join("");
+    }
+    return `
+      <div class="bm-round">
+        <div class="bm-round-title">Round ${r}</div>
+        <div class="bm-round-matches">${body}</div>
+      </div>`;
+  }).join("");
+
+  box.innerHTML = `<div class="bm-grid">${cols}</div>`;
+  scheduleBracketConnectors();
 }
 
 async function loadBracket(region, type, { showLoading = false } = {}) {
+  await ensureBracketMonths();
+  const month = currentBracketMonth;
   const box = document.getElementById("bracketDisplay");
-  const key = bracketKey(region, type);
+  const key = bracketKey(region, type, month);
   if (bracketCache.has(key)) {
     renderBracket(bracketCache.get(key), region, type);
-    return;
-  }
-  if (showLoading && !box.children.length) {
+  } else if (showLoading) {
     box.innerHTML = `<div class="loading-spinner"><div class="spinner"></div></div>`;
   }
   try {
-    const items = await fetchBracket(region, type);
-    if (currentRegion === region && currentBracket === type) {
-      renderBracket(items, region, type);
+    const data = await fetchBracket(region, type, month);
+    if (currentBracketRegion === region && currentBracket === type && currentBracketMonth === month) {
+      renderBracket(data, region, type);
     }
   } catch (e) {
-    if (currentRegion === region && currentBracket === type) {
+    if (currentBracketRegion === region && currentBracket === type && !bracketCache.has(key)) {
       box.innerHTML = `<p class="empty">Error: ${esc(e.message)}</p>`;
     }
   }
@@ -461,6 +751,35 @@ function preloadEsports() {
     fetchLeaderboard(region).catch(() => {});
     BRACKET_TYPES.forEach(type => fetchBracket(region, type).catch(() => {}));
   });
+  bindBracketHeightSync();
+  startBracketLivePoll();
+}
+
+/* Live refresh: re-fetch the currently-visible bracket every 20s, bypassing
+   the in-memory cache. Skips polling when the esports page isn't active or
+   when the tab is hidden, to avoid wasted requests. */
+const BRACKET_LIVE_INTERVAL_MS = 20000;
+let bracketLiveTimer = null;
+function startBracketLivePoll() {
+  if (bracketLiveTimer) return;
+  bracketLiveTimer = setInterval(refreshLiveBracket, BRACKET_LIVE_INTERVAL_MS);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) refreshLiveBracket();
+  });
+}
+async function refreshLiveBracket() {
+  if (document.hidden) return;
+  const esports = document.getElementById("page-esports");
+  if (!esports || !esports.classList.contains("active")) return;
+  const region = currentBracketRegion;
+  const type   = currentBracket;
+  const month  = currentBracketMonth;
+  try {
+    const data = await fetchBracket(region, type, month, { force: true });
+    if (currentBracketRegion === region && currentBracket === type && currentBracketMonth === month) {
+      renderBracket(data, region, type);
+    }
+  } catch (_e) { /* keep last good render */ }
 }
 
 async function loadWinning() {
@@ -473,12 +792,18 @@ async function loadWinning() {
       return;
     }
     grid.innerHTML = all.map(p => {
-      const img = p.avatar
-        ? `<img src="${esc(p.avatar)}" alt="${esc(p.name)}" loading="lazy" onclick="openLightbox('${esc(p.avatar)}')"/>`
+      const matcherinoId = /^\d+$/.test(String(p.matcherino_id || ""))
+        ? String(p.matcherino_id)
+        : "";
+      const image = p.avatar
+        ? `<img src="${esc(p.avatar)}" alt="${esc(p.name)}" loading="lazy"${matcherinoId ? "" : ` onclick="openLightbox('${esc(p.avatar)}')"`}/>`
         : `<div class="winning-screen-placeholder"><span>YF7</span></div>`;
+      const media = matcherinoId
+        ? `<a class="winning-screen-link" href="https://matcherino.com/tournaments/${matcherinoId}" aria-label="Open ${esc(p.name || "tournament")} on Matcherino">${image}</a>`
+        : image;
       return `
         <div class="winning-screen-card">
-          ${img}
+          ${media}
         </div>`;
     }).join("");
   } catch (e) {
@@ -1014,14 +1339,19 @@ async function deleteNews(id) {
 // --- Winning admin (screenshot uploads) ---
 async function addWinning() {
   const avatar = document.getElementById("wAvatar").value;
+  const matcherinoId = document.getElementById("wMatcherinoId").value.trim();
   if (!avatar) return alert("Upload an image first");
+  if (matcherinoId && !/^\d+$/.test(matcherinoId)) {
+    return alert("Matcherino Tournament ID must contain numbers only");
+  }
   const body = {
     type: "team",
     name: document.getElementById("wName").value,
     avatar,
+    matcherino_id: matcherinoId ? Number(matcherinoId) : null,
   };
   await api("/api/winning", { method: "POST", body });
-  ["wName","wAvatar"].forEach(id => document.getElementById(id).value = "");
+  ["wName","wMatcherinoId","wAvatar"].forEach(id => document.getElementById(id).value = "");
   document.getElementById("wAvatarPreview").innerHTML = "";
   loadAdminWinning();
   loadWinning();
@@ -1035,6 +1365,7 @@ async function loadAdminWinning() {
       <div class="admin-item-info">
         ${w.avatar ? `<img src="${esc(w.avatar)}" style="width:80px;height:auto;border-radius:6px;border:1px solid var(--border)"/>` : ""}
         <h4 style="display:inline-block;margin-left:.75rem;vertical-align:middle">${esc(w.name || "Untitled")}</h4>
+        ${w.matcherino_id ? `<span class="src-tag"><i class="fas fa-link"></i> Matcherino #${esc(w.matcherino_id)}</span>` : ""}
       </div>
       <button class="btn-delete" onclick="deleteWinning(${w.id})"><i class="fas fa-trash"></i></button>
     </div>`).join("") || `<p class="empty">No winner cards yet.</p>`;
@@ -1302,7 +1633,7 @@ if (window.location.pathname.replace(/\/$/, "") === "/admin") {
 Object.assign(window, {
   showPage, toggleMenu, closeMenu,
   filterTournaments,
-  showRegion, showBracket,
+  showRegion, showBracket, onBracketMonthChange, onBracketRegionChange, toggleBracketFullscreen,
   openNewsModal, closeModal,
   showContactTab, submitContact, copyTicketCode, searchTicket, sendUserReply,
   copyStaffDiscord,

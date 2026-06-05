@@ -1,0 +1,24 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local-only files (must not be committed)
+athlos_poller.py
+data/
+uploads/
+yf7.db
+yf7.db-journal
+yf7.db-wal
+yf7.db-shm
+
+# Service-account keys / secrets
+gcs-key.json
+*.pem
+*.key
+.env
+.env.*
+
+# Temp
+*.tmp
+tmp*.tmp
