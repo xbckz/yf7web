@@ -4,7 +4,6 @@ __pycache__/
 *$py.class
 
 # Local-only files (must not be committed)
-athlos_poller.py
 data/
 uploads/
 yf7.db
