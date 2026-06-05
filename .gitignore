@@ -12,6 +12,7 @@ yf7.db-wal
 yf7.db-shm
 
 # Service-account keys / secrets
+admin.txt
 gcs-key.json
 *.pem
 *.key

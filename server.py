@@ -6,7 +6,7 @@ Run:
     python server.py
 
 Then open: http://localhost:5000
-Admin credentials are REQUIRED via env vars YF7_ADMIN_EMAIL and YF7_ADMIN_PASSWORD.
+Admin credentials are read from `admin.txt` (single line: username:password).
 """
 import os
 import re
@@ -66,12 +66,26 @@ DB_PATH = BASE_DIR / "yf7.db"
 UPLOAD_DIR = BASE_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-ADMIN_EMAIL    = os.environ.get("YF7_ADMIN_EMAIL")
-ADMIN_PASSWORD = os.environ.get("YF7_ADMIN_PASSWORD")
-if not ADMIN_EMAIL or not ADMIN_PASSWORD:
+# Admin credentials are read from a local file `admin.txt` next to server.py.
+# Format: a single line "username:password" (no quotes, no spaces around the
+# colon). The file is gitignored so it never leaves your machine.
+ADMIN_FILE = Path(__file__).parent / "admin.txt"
+try:
+    _raw = ADMIN_FILE.read_text(encoding="utf-8").strip().splitlines()[0]
+    ADMIN_EMAIL, ADMIN_PASSWORD = _raw.split(":", 1)
+    ADMIN_EMAIL    = ADMIN_EMAIL.strip()
+    ADMIN_PASSWORD = ADMIN_PASSWORD.strip()
+    if not ADMIN_EMAIL or not ADMIN_PASSWORD:
+        raise ValueError("empty username or password")
+except FileNotFoundError:
     raise SystemExit(
-        "FATAL: YF7_ADMIN_EMAIL and YF7_ADMIN_PASSWORD must be set as "
-        "environment variables before starting the server."
+        f"FATAL: missing admin credentials file at {ADMIN_FILE}. "
+        f"Create it with one line: username:password"
+    )
+except Exception as _e:
+    raise SystemExit(
+        f"FATAL: could not parse {ADMIN_FILE} ({_e}). "
+        f"Expected a single line in the form: username:password"
     )
 TOURNAMENT_REGIONS = {"EMEA", "North America", "South America", "East Asia"}
 BRACKET_REGIONS = {"emea", "northamerica", "southamerica", "eastasia"}
