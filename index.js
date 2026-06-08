@@ -523,6 +523,11 @@ function syncBracketHeight() {
     frame.style.height = "";
     return;
   }
+  // Stacked single-column layout on mobile — let CSS handle the height.
+  if (window.matchMedia("(max-width: 900px)").matches) {
+    frame.style.height = "";
+    return;
+  }
   const lbHeight = lb.getBoundingClientRect().height;
   // height available for the frame = standings height − everything above it
   // inside the brackets container.
