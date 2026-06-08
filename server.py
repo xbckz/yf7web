@@ -311,7 +311,10 @@ def static_files(path):
     if not str(candidate).startswith(str(BASE_DIR)):
         abort(404)
     if candidate.is_file():
-        return send_from_directory(BASE_DIR, path)
+        resp = send_from_directory(BASE_DIR, path)
+        if path in ("index.css", "index.js"):
+            resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return resp
     abort(404)
 
 
