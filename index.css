@@ -2538,9 +2538,15 @@ a { color: inherit; }
     padding: 1rem;
     min-width: 0;
     max-width: 100%;
+    height: auto;
   }
   .brackets-tabs {
     flex-wrap: wrap;
+  }
+  .brackets-container .bracket-frame {
+    flex: none;
+    min-height: 60vh;
+    max-height: 75vh;
   }
   .contact-container { grid-template-columns: 1fr; }
   .hero { padding: 5rem 1.5rem 3rem; flex-direction: column; align-items: flex-start; }
