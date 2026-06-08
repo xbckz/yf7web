@@ -1,0 +1,26 @@
+name: Refresh tweets cache
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # every 30 minutes
+  workflow_dispatch:          # allow manual run from the Actions tab
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: pip install requests
+
+      - name: Fetch + push tweets
+        env:
+          YF7_TWEETS_TOKEN: ${{ secrets.YF7_TWEETS_TOKEN }}
+          YF7_TWEETS_ENDPOINT: ${{ secrets.YF7_TWEETS_ENDPOINT }}
+          YF7_TWITTER_HANDLE: ${{ vars.YF7_TWITTER_HANDLE || 'YF7Tournaments' }}
+        run: python .github/workflows/fetch_tweets.py

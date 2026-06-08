@@ -61,6 +61,11 @@ TWEETS_CACHE_TTL = 12 * 60 * 60  # 12 hours
 _tweets_cache = {"items": [], "ts": 0.0, "source": None}
 _tweets_lock = threading.Lock()
 
+# Shared secret for /api/tweets/refresh — set in env on the VM AND as a GitHub
+# Actions secret so the cron workflow can push fresh tweets.
+TWEETS_REFRESH_TOKEN = os.environ.get("YF7_TWEETS_TOKEN", "")
+TWEETS_CACHE_FILE = Path(__file__).parent / "data" / "tweets_cache.json"
+
 BASE_DIR = Path(__file__).parent.resolve()
 DB_PATH = BASE_DIR / "yf7.db"
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -1759,45 +1764,69 @@ def img_proxy():
     )
 
 
+def _load_tweets_from_disk():
+    try:
+        with open(TWEETS_CACHE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        _tweets_cache["items"]  = data.get("items") or []
+        _tweets_cache["ts"]     = float(data.get("ts") or 0)
+        _tweets_cache["source"] = data.get("source")
+    except Exception:
+        pass
+
+
+def _save_tweets_to_disk():
+    try:
+        TWEETS_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(TWEETS_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(_tweets_cache, f, ensure_ascii=False)
+    except Exception as exc:
+        print(f"tweets cache save failed: {exc}")
+
+
+_load_tweets_from_disk()
+
+
 @app.get("/api/tweets")
 def get_tweets():
-    """Return cached tweets, refreshing if older than TWEETS_CACHE_TTL."""
+    """Return whatever is in the cache. Refreshed externally by GitHub Actions
+    via POST /api/tweets/refresh."""
     with _tweets_lock:
         now = time.time()
-        fresh = (_tweets_cache["items"]
-                 and now - _tweets_cache["ts"] < TWEETS_CACHE_TTL)
-        if fresh:
-            return jsonify({
-                "items":  _tweets_cache["items"],
-                "source": _tweets_cache["source"],
-                "cached": True,
-                "age":    int(now - _tweets_cache["ts"]),
-            })
-
-    items, source = _fetch_tweets_uncached()
-    # Drop retweets — user-only feed.
-    items = [t for t in items if not t.get("is_retweet")]
-    with _tweets_lock:
-        if items:
-            _tweets_cache["items"]  = items
-            _tweets_cache["ts"]     = time.time()
-            _tweets_cache["source"] = source
-        elif _tweets_cache["items"]:
-            # All mirrors down — serve stale rather than nothing.
-            return jsonify({
-                "items":  _tweets_cache["items"],
-                "source": _tweets_cache["source"],
-                "cached": True,
-                "stale":  True,
-                "age":    int(time.time() - _tweets_cache["ts"]),
-            })
-    if not items:
+        age = int(now - _tweets_cache["ts"]) if _tweets_cache["ts"] else None
+        stale = age is not None and age > TWEETS_CACHE_TTL
         return jsonify({
-            "items": [],
-            "error": ("Could not reach any Nitter instance. X has no public "
-                      "tweet API and all mirrors are currently blocked."),
-        }), 503
-    return jsonify({"items": items, "source": source, "cached": False})
+            "items":  _tweets_cache["items"],
+            "source": _tweets_cache["source"],
+            "cached": True,
+            "stale":  stale,
+            "age":    age,
+        })
+
+
+@app.post("/api/tweets/refresh")
+def refresh_tweets():
+    """Replace the tweet cache. Called by the GitHub Actions cron job.
+    Auth: `Authorization: Bearer <YF7_TWEETS_TOKEN>`."""
+    if not TWEETS_REFRESH_TOKEN:
+        return jsonify({"error": "refresh disabled (YF7_TWEETS_TOKEN unset)"}), 503
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer ") or not hmac.compare_digest(
+            auth[7:], TWEETS_REFRESH_TOKEN):
+        return jsonify({"error": "unauthorized"}), 401
+
+    body = request.get_json(silent=True) or {}
+    items = body.get("items")
+    if not isinstance(items, list):
+        return jsonify({"error": "items must be a list"}), 400
+    items = [t for t in items if isinstance(t, dict) and not t.get("is_retweet")]
+
+    with _tweets_lock:
+        _tweets_cache["items"]  = items
+        _tweets_cache["ts"]     = time.time()
+        _tweets_cache["source"] = body.get("source") or "github-actions"
+        _save_tweets_to_disk()
+    return jsonify({"ok": True, "count": len(items)})
 
 
 try:
