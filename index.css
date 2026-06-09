@@ -2543,7 +2543,7 @@ a { color: inherit; }
   .brackets-tabs {
     flex-wrap: wrap;
   }
-  .brackets-container .bracket-frame {
+  .brackets-container .bracket-frame:not(.bracket-fullscreen) {
     flex: none;
     min-height: 60vh;
     max-height: 75vh;
@@ -4500,6 +4500,10 @@ body {
   border-radius: 0;
   padding: 2.5rem 1.25rem 1.25rem;
   background: #0a0a0a;
+  min-height: 100vh;
+  max-height: 100vh;
+  width: 100vw;
+  max-width: 100vw;
 }
 body.bracket-fs-lock { overflow: hidden; }
 
