@@ -2559,6 +2559,12 @@ a { color: inherit; }
   .latest-tweets, .tournament-filters {
     padding-left: 1.5rem; padding-right: 1.5rem;
   }
+  .tournaments-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
   .navbar { padding: 1rem 1.5rem; }
   .form-row { grid-template-columns: 1fr; }
 }
