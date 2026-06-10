@@ -247,11 +247,31 @@ let allTournaments = [];
 let tournamentFilter = "all";
 const TOURNAMENT_REFRESH_INTERVAL = 60 * 60 * 1000;
 
+const TOURNAMENT_CACHE_KEY = "yf7.tournaments.v1";
+
+function loadTournamentsFromCache() {
+  try {
+    const raw = localStorage.getItem(TOURNAMENT_CACHE_KEY);
+    if (!raw) return false;
+    const { data } = JSON.parse(raw);
+    if (!Array.isArray(data) || !data.length) return false;
+    allTournaments = data;
+    renderTournaments();
+    return true;
+  } catch { return false; }
+}
+
 async function loadTournaments() {
+  const hadCache = loadTournamentsFromCache();
   try {
     allTournaments = await api("/api/tournaments");
     renderTournaments();
+    try {
+      localStorage.setItem(TOURNAMENT_CACHE_KEY,
+        JSON.stringify({ data: allTournaments, ts: Date.now() }));
+    } catch {}
   } catch (e) {
+    if (hadCache) return;
     document.getElementById("tournamentsGrid").innerHTML =
       `<p class="empty">Could not load tournaments: ${esc(e.message)}</p>`;
   }
