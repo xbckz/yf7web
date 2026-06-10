@@ -44,6 +44,10 @@ MATCHERINO_CACHE_TTL = 60 * 60
 _matcherino_cache = {}
 _matcherino_lock = threading.Lock()
 
+TOURNAMENTS_RESPONSE_TTL = 5 * 60  # serve cached response for 5min, then refresh
+_tournaments_response_cache = {"ts": 0, "data": None, "refreshing": False}
+_tournaments_response_lock = threading.Lock()
+
 # X (Twitter) handle to fetch tweets for. Settable via env var.
 TWITTER_HANDLE = os.environ.get("YF7_TWITTER_HANDLE", "YF7Tournaments")
 
@@ -474,8 +478,7 @@ def tournament_sort_key(t):
     return (status_order.get(status, 3), timestamp, t.get("id") or 0)
 
 
-@app.get("/api/tournaments")
-def list_tournaments():
+def _build_tournaments_payload():
     db = get_db()
     rows = db.execute("SELECT * FROM tournaments").fetchall()
     out = []
@@ -500,7 +503,51 @@ def list_tournaments():
     if changed:
         db.commit()
     out.sort(key=tournament_sort_key)
-    return jsonify(out)
+    return out
+
+
+def _refresh_tournaments_cache_async():
+    with app.app_context():
+        try:
+            data = _build_tournaments_payload()
+            with _tournaments_response_lock:
+                _tournaments_response_cache["data"] = data
+                _tournaments_response_cache["ts"] = time.time()
+        except Exception:
+            pass
+        finally:
+            with _tournaments_response_lock:
+                _tournaments_response_cache["refreshing"] = False
+
+
+@app.get("/api/tournaments")
+def list_tournaments():
+    now = time.time()
+    with _tournaments_response_lock:
+        cached = _tournaments_response_cache["data"]
+        age = now - _tournaments_response_cache["ts"]
+        refreshing = _tournaments_response_cache["refreshing"]
+        if cached is not None and age >= TOURNAMENTS_RESPONSE_TTL and not refreshing:
+            _tournaments_response_cache["refreshing"] = True
+            threading.Thread(target=_refresh_tournaments_cache_async,
+                             daemon=True).start()
+        if cached is not None:
+            return jsonify(cached)
+
+    try:
+        data = _build_tournaments_payload()
+    except Exception as e:
+        return jsonify({"error": str(e)}), 503
+    with _tournaments_response_lock:
+        _tournaments_response_cache["data"] = data
+        _tournaments_response_cache["ts"] = time.time()
+    return jsonify(data)
+
+
+def _invalidate_tournaments_cache():
+    with _tournaments_response_lock:
+        _tournaments_response_cache["data"] = None
+        _tournaments_response_cache["ts"] = 0
 
 
 @app.post("/api/tournaments")
@@ -518,6 +565,7 @@ def add_tournament():
          d.get("matcherino_id"))
     )
     db.commit()
+    _invalidate_tournaments_cache()
     return jsonify({"id": cur.lastrowid})
 
 
@@ -785,6 +833,7 @@ def add_tournament_from_matcherino():
         )
         tid = cur.lastrowid
     db.commit()
+    _invalidate_tournaments_cache()
     return jsonify({"id": tid, "matcherino_id": bid, "name": info["name"]})
 
 
@@ -806,6 +855,7 @@ def update_tournament(tid):
     db = get_db()
     db.execute(f"UPDATE tournaments SET {','.join(sets)} WHERE id=?", vals)
     db.commit()
+    _invalidate_tournaments_cache()
     return jsonify({"ok": True})
 
 
@@ -815,6 +865,7 @@ def delete_tournament(tid):
     db = get_db()
     db.execute("DELETE FROM tournaments WHERE id=?", (tid,))
     db.commit()
+    _invalidate_tournaments_cache()
     return jsonify({"ok": True})
 
 
