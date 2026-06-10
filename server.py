@@ -318,13 +318,19 @@ def static_files(path):
         resp = send_from_directory(BASE_DIR, path)
         if path in ("index.css", "index.js"):
             resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+        elif path.startswith("assets/"):
+            # Hero/logo/etc. — large, rarely change. Long cache + immutable.
+            resp.headers["Cache-Control"] = "public, max-age=604800, immutable"
         return resp
     abort(404)
 
 
 @app.route("/uploads/<path:fname>")
 def uploads(fname):
-    return send_from_directory(UPLOAD_DIR, fname)
+    resp = send_from_directory(UPLOAD_DIR, fname)
+    # Uploaded images are content-addressed (hashed filenames) — safe to cache.
+    resp.headers["Cache-Control"] = "public, max-age=2592000, immutable"
+    return resp
 
 
 # ---------- auth ----------
