@@ -176,6 +176,35 @@ def _fetch_bracket(seg_id: str):
 
 _executor = ThreadPoolExecutor(max_workers=WORKERS, thread_name_prefix="ap")
 
+# Athlos uses JSON:API pagination and caps page[size] at 20. The legacy
+# `?size=100` parameter is ignored, which leaves newer segments unfetched.
+_SEG_PAGE_SIZE = 20
+_SEG_MAX_PAGES = 20
+
+
+def _fetch_all_segments() -> dict:
+    """Fetch every segment page and return one merged JSON:API document."""
+    first = _athlos(
+        f"/events/1.0/segments?page[number]=1&page[size]={_SEG_PAGE_SIZE}"
+    )
+    data = list(first.get("data") or [])
+    last = (((first.get("meta") or {}).get("page") or {}).get("last")) or 1
+
+    for page in range(2, min(int(last), _SEG_MAX_PAGES) + 1):
+        try:
+            result = _athlos(
+                f"/events/1.0/segments?page[number]={page}"
+                f"&page[size]={_SEG_PAGE_SIZE}"
+            )
+            data.extend(result.get("data") or [])
+        except Exception as exc:
+            log.debug("segments page %d: %s", page, exc)
+
+    merged = dict(first)
+    merged["data"] = data
+    return merged
+
+
 INACTIVE_BRACKET_INTERVAL = 300  # 5 min — refresh concluded brackets occasionally
 
 _cycle_state = {
@@ -190,7 +219,7 @@ def _poll_cycle() -> None:
 
     if now - _cycle_state["last_seg_fetch"] >= SEGMENT_INTERVAL:
         try:
-            fresh  = _athlos("/events/1.0/segments?size=100")
+            fresh  = _fetch_all_segments()
             merged = _merge_segments(fresh, _load("segments.json"))
             _save("segments.json", merged)
             _cycle_state["segments"]       = merged.get("data") or []
