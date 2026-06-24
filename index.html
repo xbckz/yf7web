@@ -509,7 +509,12 @@
       <!-- News -->
       <div class="admin-tab-content" id="admin-news">
         <div class="admin-form-card">
-          <h3>Publish Article</h3>
+          <h3 id="nFormTitle">Publish Article</h3>
+          <div class="form-editing-banner" id="nEditingBanner" style="display:none">
+            <span><i class="fas fa-pen"></i> Editing article <strong id="nEditingId"></strong></span>
+            <button type="button" class="btn-link" onclick="cancelEditNews()">Cancel</button>
+          </div>
+          <input type="hidden" id="nEditId"/>
           <div class="form-group">
             <label>Title</label>
             <input type="text" id="nTitle" placeholder="Article title"/>
@@ -528,9 +533,27 @@
           </div>
           <div class="form-group">
             <label>Content</label>
-            <textarea id="nContent" rows="8" placeholder="Article content (line breaks preserved)..."></textarea>
+            <textarea id="nContent" rows="10" placeholder="Article content. Place your cursor where you want an image, then click 'Insert image' or paste one from the clipboard."></textarea>
+            <div class="news-content-tools">
+              <button type="button" class="btn btn-outline btn-sm" onclick="insertNewsImage()">
+                <i class="fas fa-image"></i> Insert image at cursor
+              </button>
+              <span class="form-hint">
+                Paste or drag images into the box too. After inserting, edit the marker to resize or wrap:
+                <code>|small</code> <code>|medium</code> <code>|large</code>
+                <code>|320px</code> <code>|40%</code>
+                <code>|left</code> <code>|right</code>
+                — e.g. <code>[img:/uploads/x.png|medium|right]</code> floats the image right and wraps text alongside.
+              </span>
+            </div>
           </div>
-          <button class="btn btn-primary" onclick="addNews()">
+          <div class="form-group">
+            <label>Live preview</label>
+            <div class="news-preview" id="nPreview">
+              <p class="news-preview-empty">Start typing to see how the article will look.</p>
+            </div>
+          </div>
+          <button class="btn btn-primary" id="nSubmitBtn" onclick="saveNews()">
             <i class="fas fa-newspaper"></i> Publish
           </button>
         </div>

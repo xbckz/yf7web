@@ -862,13 +862,14 @@ async function loadNews() {
       const img = a.image
         ? `<img class="news-img" src="${esc(a.image)}" alt=""/>`
         : `<div class="news-img-placeholder"><span>YF7</span></div>`;
+      const preview = (a.content || "").replace(/\[img:[^\]\n]+\]/g, "").trim();
       return `
         <div class="news-card" onclick='openNewsModal(${JSON.stringify(a).replace(/'/g,"&#39;")})'>
           ${img}
           <div class="news-content">
             <span class="news-category">${esc(a.category || "News")}</span>
             <h3>${esc(a.title)}</h3>
-            <p>${esc(a.content || "")}</p>
+            <p>${esc(preview)}</p>
             <div class="news-date"><i class="fas fa-clock"></i> ${fmtDate(a.date)}</div>
           </div>
         </div>`;
@@ -878,13 +879,71 @@ async function loadNews() {
   }
 }
 
+// Article content is plain text with [img:URL] markers placed at the cursor by
+// the admin. Optional tokens, in any order, separated by '|':
+//   size:  small | medium | large | full | <N>px | <N>%
+//   align: left  | right  | center
+// e.g. [img:/uploads/x.png|medium|right] floats a medium image to the right
+// and text wraps alongside it.
+const _NAMED_SIZES = new Set(["small","medium","large","full"]);
+const _ALIGNS = new Set(["left","right","center"]);
+
+function _parseInlineImageOpts(tail) {
+  const opts = { sizeClass: "news-inline-img--large", style: "", alignClass: "" };
+  if (!tail) return opts;
+  for (let tok of tail.split("|")) {
+    tok = tok.trim().toLowerCase();
+    if (!tok) continue;
+    if (_NAMED_SIZES.has(tok)) {
+      opts.sizeClass = `news-inline-img--${tok}`;
+      continue;
+    }
+    if (_ALIGNS.has(tok)) {
+      opts.alignClass = `news-inline-img--align-${tok}`;
+      continue;
+    }
+    const m = tok.match(/^(\d+)(px|%)$/);
+    if (m) {
+      opts.sizeClass = "news-inline-img--custom";
+      opts.style = `max-width:${m[1]}${m[2]}`;
+    }
+  }
+  return opts;
+}
+
+function renderNewsBody(content) {
+  if (!content) return "";
+  const parts = String(content).split(/(\[img:[^\]\n]+\])/g);
+  let out = "";
+  let buffer = "";
+  const flushText = () => {
+    const text = buffer.trim();
+    buffer = "";
+    if (!text) return;
+    text.split(/\n+/).map(p => p.trim()).filter(Boolean).forEach(p => {
+      out += `<p>${esc(p)}</p>`;
+    });
+  };
+  for (const part of parts) {
+    const m = part.match(/^\[img:([^\]\n|]+)((?:\|[^\]\n|]+)*)\]$/);
+    if (m) {
+      flushText();
+      const url = m[1];
+      const { sizeClass, style, alignClass } = _parseInlineImageOpts(m[2]);
+      const styleAttr = style ? ` style="${esc(style)}"` : "";
+      const cls = [sizeClass, alignClass].filter(Boolean).join(" ");
+      out += `<figure class="news-inline-img ${cls}"${styleAttr}>` +
+             `<img src="${esc(url)}" alt="" loading="lazy"/></figure>`;
+    } else if (part) {
+      buffer += part;
+    }
+  }
+  flushText();
+  return out;
+}
+
 function openNewsModal(a) {
-  const body = (a.content || "")
-    .split(/\n+/)
-    .map(p => p.trim())
-    .filter(Boolean)
-    .map(p => `<p>${esc(p)}</p>`)
-    .join("");
+  const body = renderNewsBody(a.content || "");
   document.getElementById("newsModalContent").innerHTML = `
     ${a.image ? `
       <div class="news-article-media">
@@ -1257,6 +1316,125 @@ function wireFileUploads() {
       } catch (e) { alert("Upload failed: " + e.message); }
     });
   });
+  wireNewsContentInlineImages();
+}
+
+// --- inline image insertion for news article content ---
+async function _uploadFileToServer(file) {
+  const fd = new FormData();
+  fd.append("file", file);
+  const r = await api("/api/upload", { method: "POST", body: fd });
+  return r.url;
+}
+
+function _insertAtTextareaCursor(ta, text) {
+  const start = ta.selectionStart ?? ta.value.length;
+  const end   = ta.selectionEnd   ?? ta.value.length;
+  const before = ta.value.slice(0, start);
+  const after  = ta.value.slice(end);
+  const needsLeadingNl  = before && !before.endsWith("\n") ? "\n" : "";
+  const needsTrailingNl = after && !after.startsWith("\n") ? "\n" : "";
+  const insertion = `${needsLeadingNl}${text}${needsTrailingNl}`;
+  ta.value = before + insertion + after;
+  const caret = (before + insertion).length;
+  ta.selectionStart = ta.selectionEnd = caret;
+  ta.focus();
+  // Programmatic value changes don't fire 'input', so dispatch it ourselves
+  // — the news preview listener (and anything else) will refresh.
+  ta.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function _looksLikeImageFile(file) {
+  if (!file) return false;
+  if (file.type && file.type.startsWith("image/")) return true;
+  // Windows clipboard / drag-drop may hand us files with empty MIME — fall back
+  // to extension sniffing.
+  const name = (file.name || "").toLowerCase();
+  return /\.(png|jpe?g|gif|webp|bmp|svg|avif|heic|heif)$/.test(name);
+}
+
+async function _uploadAndInsertImage(ta, file) {
+  if (!_looksLikeImageFile(file)) {
+    alert("That doesn't look like an image file.");
+    return;
+  }
+  try {
+    const url = await _uploadFileToServer(file);
+    // Filenames coming back from the server can contain spaces or other
+    // characters that would break the [img:...] marker — encode them so the
+    // marker is a single unbroken token.
+    _insertAtTextareaCursor(ta, `[img:${encodeURI(url)}]`);
+  } catch (e) {
+    console.error("Inline image upload failed:", e);
+    alert("Upload failed: " + (e && e.message ? e.message : e));
+  }
+}
+
+function _renderNewsPreview() {
+  const ta = document.getElementById("nContent");
+  const out = document.getElementById("nPreview");
+  if (!ta || !out) return;
+  const html = renderNewsBody(ta.value || "");
+  out.innerHTML = html ||
+    '<p class="news-preview-empty">Start typing to see how the article will look.</p>';
+}
+
+function wireNewsContentInlineImages() {
+  const ta = document.getElementById("nContent");
+  if (!ta || ta._inlineWired) return;
+  ta._inlineWired = true;
+  ta.addEventListener("input", _renderNewsPreview);
+  _renderNewsPreview();
+
+  ta.addEventListener("paste", async (ev) => {
+    const dt = ev.clipboardData;
+    if (!dt) return;
+    // Prefer dt.files (works for files copied from Explorer / Finder); fall
+    // back to scanning items (screenshots and many browser-image copies).
+    const fileList = (dt.files && dt.files.length) ? Array.from(dt.files) : [];
+    if (!fileList.length && dt.items) {
+      for (const it of dt.items) {
+        if (it.kind === "file") {
+          const f = it.getAsFile();
+          if (f) fileList.push(f);
+        }
+      }
+    }
+    const img = fileList.find(_looksLikeImageFile);
+    if (!img) return;  // let the normal text paste through
+    ev.preventDefault();
+    await _uploadAndInsertImage(ta, img);
+  });
+
+  // Drag & drop: dropping a local image file straight onto the textarea.
+  ta.addEventListener("dragover", (ev) => {
+    if (ev.dataTransfer && Array.from(ev.dataTransfer.types || []).includes("Files")) {
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = "copy";
+    }
+  });
+  ta.addEventListener("drop", async (ev) => {
+    const files = ev.dataTransfer && ev.dataTransfer.files;
+    if (!files || !files.length) return;
+    const img = Array.from(files).find(_looksLikeImageFile);
+    if (!img) return;
+    ev.preventDefault();
+    await _uploadAndInsertImage(ta, img);
+  });
+}
+
+async function insertNewsImage() {
+  const ta = document.getElementById("nContent");
+  if (!ta) return;
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.addEventListener("change", async () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    await _uploadAndInsertImage(ta, file);
+  });
+  input.click();
 }
 
 // --- Matcherino quick-add ---
@@ -1329,7 +1507,24 @@ async function deleteTournament(id) {
 }
 
 // --- News admin ---
-async function addNews() {
+function _resetNewsForm() {
+  ["nTitle","nImage","nContent","nEditId"].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = "";
+  });
+  document.getElementById("nImagePreview").innerHTML = "";
+  document.getElementById("nEditingBanner").style.display = "none";
+  document.getElementById("nFormTitle").textContent = "Publish Article";
+  document.getElementById("nSubmitBtn").innerHTML =
+    '<i class="fas fa-newspaper"></i> Publish';
+  if (typeof _renderNewsPreview === "function") _renderNewsPreview();
+}
+
+function cancelEditNews() {
+  _resetNewsForm();
+}
+
+async function saveNews() {
+  const editId = document.getElementById("nEditId").value;
   const body = {
     title: document.getElementById("nTitle").value,
     category: document.getElementById("nCategory").value,
@@ -1337,10 +1532,43 @@ async function addNews() {
     content: document.getElementById("nContent").value,
   };
   if (!body.title) return alert("Title required");
-  await api("/api/news", { method: "POST", body });
-  ["nTitle","nImage","nContent"].forEach(id => document.getElementById(id).value = "");
-  document.getElementById("nImagePreview").innerHTML = "";
+  if (editId) {
+    await api(`/api/news/${editId}`, { method: "PATCH", body });
+  } else {
+    await api("/api/news", { method: "POST", body });
+  }
+  _resetNewsForm();
   loadAdminNews();
+}
+
+// Kept as an alias so any older onclick="addNews()" still works.
+const addNews = saveNews;
+
+async function editNews(id) {
+  const items = await api("/api/news");
+  const a = items.find(x => x.id === id);
+  if (!a) return alert("Article not found.");
+  document.getElementById("nEditId").value = String(a.id);
+  document.getElementById("nTitle").value = a.title || "";
+  document.getElementById("nContent").value = a.content || "";
+  const cat = document.getElementById("nCategory");
+  if (a.category) {
+    // If the article's category isn't one of the preset options, add it.
+    const exists = Array.from(cat.options).some(o => o.value === a.category);
+    if (!exists) cat.add(new Option(a.category, a.category));
+    cat.value = a.category;
+  }
+  document.getElementById("nImage").value = a.image || "";
+  document.getElementById("nImagePreview").innerHTML =
+    a.image ? `<img src="${esc(a.image)}"/>` : "";
+  document.getElementById("nEditingId").textContent = `#${a.id}`;
+  document.getElementById("nEditingBanner").style.display = "flex";
+  document.getElementById("nFormTitle").textContent = "Edit Article";
+  document.getElementById("nSubmitBtn").innerHTML =
+    '<i class="fas fa-save"></i> Save changes';
+  document.getElementById("nTitle").scrollIntoView({behavior:"smooth", block:"center"});
+  document.getElementById("nTitle").focus();
+  _renderNewsPreview();
 }
 
 async function loadAdminNews() {
@@ -1352,12 +1580,17 @@ async function loadAdminNews() {
         <h4>${esc(a.title)}</h4>
         <p>${esc(a.category || "")} / ${fmtDate(a.date)}</p>
       </div>
-      <button class="btn-delete" onclick="deleteNews(${a.id})"><i class="fas fa-trash"></i> Delete</button>
+      <div class="admin-item-actions">
+        <button class="btn-edit" onclick="editNews(${a.id})"><i class="fas fa-pen"></i> Edit</button>
+        <button class="btn-delete" onclick="deleteNews(${a.id})"><i class="fas fa-trash"></i> Delete</button>
+      </div>
     </div>`).join("") || `<p class="empty">No articles yet.</p>`;
 }
 async function deleteNews(id) {
   if (!confirm("Delete this article?")) return;
   await api(`/api/news/${id}`, { method: "DELETE" });
+  // If the deleted article is the one being edited, reset the form.
+  if (document.getElementById("nEditId").value === String(id)) _resetNewsForm();
   loadAdminNews();
 }
 
@@ -1664,7 +1897,7 @@ Object.assign(window, {
   copyStaffDiscord,
   adminLogin, adminLogout, showAdminTab,
   deleteTournament, previewMatcherino, addFromMatcherino,
-  addNews, deleteNews,
+  addNews, saveNews, editNews, cancelEditNews, deleteNews, insertNewsImage,
   addWinning, deleteWinning,
   saveAbout, addStaff, deleteStaff, addPartner, deletePartner,
   openLightbox,

@@ -926,6 +926,25 @@ def add_news():
     return jsonify({"id": cur.lastrowid})
 
 
+@app.patch("/api/news/<int:nid>")
+@require_admin
+def update_news(nid):
+    d = parse_json()
+    fields = ["title", "category", "content", "image"]
+    sets, vals = [], []
+    for k in fields:
+        if k in d:
+            sets.append(f"{k}=?")
+            vals.append(d[k])
+    if not sets:
+        return jsonify({"ok": True})
+    vals.append(nid)
+    db = get_db()
+    db.execute(f"UPDATE news SET {','.join(sets)} WHERE id=?", vals)
+    db.commit()
+    return jsonify({"ok": True})
+
+
 @app.delete("/api/news/<int:nid>")
 @require_admin
 def delete_news(nid):
