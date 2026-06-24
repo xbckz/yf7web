@@ -307,10 +307,38 @@ def index():
     return send_from_directory(BASE_DIR, "index.html")
 
 
+# Files/directories under the project root that must NEVER be served, even
+# though they sit next to index.html. Matched against any path segment.
+_DENY_NAMES = {
+    "admin.txt", "yf7.db", "yf7.db-journal", "yf7.db-wal", "yf7.db-shm",
+    "requirements.txt", "server.py", "athlos_poller.py",
+    "data", "uploads",  # uploads served via its own dedicated route
+}
+_DENY_EXTS = (".py", ".db", ".sql", ".env", ".pem", ".key", ".crt", ".pyc",
+              ".bak", ".old", ".swp", ".log", ".ini", ".conf")
+
+
+def _is_sensitive_path(path):
+    parts = [p for p in path.replace("\\", "/").split("/") if p]
+    for p in parts:
+        # Any dotfile / dotdir (.git, .env, .htaccess, .vscode, .DS_Store, ...)
+        if p.startswith("."):
+            return True
+        if p.lower() in _DENY_NAMES:
+            return True
+    name = parts[-1] if parts else ""
+    low = name.lower()
+    if any(low.endswith(ext) for ext in _DENY_EXTS):
+        return True
+    return False
+
+
 @app.route("/<path:path>")
 def static_files(path):
     # serve any file in project root (index.css, index.js, logo, etc.)
     # restrict to existing files to avoid path escapes
+    if _is_sensitive_path(path):
+        abort(404)
     candidate = (BASE_DIR / path).resolve()
     if not str(candidate).startswith(str(BASE_DIR)):
         abort(404)
