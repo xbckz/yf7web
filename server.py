@@ -269,7 +269,7 @@ def init_db():
     cur = conn.execute("SELECT value FROM settings WHERE key='discord'")
     if cur.fetchone() is None:
         conn.execute("INSERT INTO settings(key, value) VALUES(?, ?)",
-                     ("discord", "https://discord.gg/jWfZdcDftr"))
+                     ("discord", "https://discord.gg/d7p9cGUb6C"))
     conn.commit()
     conn.close()
 
